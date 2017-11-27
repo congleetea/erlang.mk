@@ -5497,6 +5497,223 @@ define bs_sys_config
 ].
 endef
 
+define bs_sys_conf
+
+##===================================================================
+## $p Configuration
+##===================================================================
+
+##--------------------------------------------------------------------
+## Node Args
+##--------------------------------------------------------------------
+
+## Node Name
+node.name = $p@127.0.0.1
+
+## Cookie for distributed node 
+node.cookie = $p
+
+## vm.args: -heart
+# Heartbeat monitoring of an Erlang runtime system, Value should be 'on' or comment the line
+node.heartbeat = on
+
+## Enable kernel poll
+node.kernel_poll = on
+
+## async thread pool
+node.async_threads = 4
+
+## Erlang Process Limit
+node.process_limit = 2097152
+
+## Set the distribution buffer busy limit (dist_buf_busy_limit)
+node.dist_buffer_size = 32MB
+
+## Sets the maximum number of simultaneously existing ports for this system
+node.max_ports = 1048576
+
+## Max ETS Tables.
+## Note that mnesia and SSL will create temporary ets tables.
+node.max_ets_tables = 256000
+
+## Tweak GC to run more often
+node.fullsweep_after = 1000
+
+## Crash dump
+node.crash_dump = log/crash.dump
+
+## Distributed node ticktime
+node.dist_net_ticktime = 60
+
+## Distributed node port range
+# node.dist_listen_min = 6369
+# node.dist_listen_max = 6369
+
+
+##--------------------------------------------------------------------
+## Application Args
+##--------------------------------------------------------------------
+
+endef
+
+define bs_sys_schema
+%%-*- mode: erlang -*-
+%% $p config mapping
+
+%%--------------------------------------------------------------------
+%% Erlang Node
+%%--------------------------------------------------------------------
+
+%% @doc Erlang node name
+{mapping, "node.name", "vm_args.-name", [
+  {default, "$p@127.0.0.1"}
+]}.
+
+%% @doc Secret cookie for distributed erlang node
+{mapping, "node.cookie", "vm_args.-setcookie", [
+  {default, "$p"}
+]}.
+
+%% @doc SMP Support
+{mapping, "node.smp", "vm_args.-smp", [
+  {default, auto},
+  {datatype, {enum, [enable, auto, disable]}},
+  hidden
+]}.
+
+%% @doc http://erlang.org/doc/man/heart.html
+{mapping, "node.heartbeat", "vm_args.-heart", [
+  {datatype, flag},
+  hidden
+]}.
+
+{translation, "vm_args.-heart", fun(Conf) ->
+    case cuttlefish:conf_get("node.heartbeat", Conf) of
+        true  -> "";
+        false -> cuttlefish:invalid("should be 'on' or comment the line!")
+    end
+end}.
+
+%% @doc Enable Kernel Poll
+{mapping, "node.kernel_poll", "vm_args.+K", [
+  {default, on},
+  {datatype, flag},
+  hidden
+]}.
+
+%% @doc More information at: http://erlang.org/doc/man/erl.html
+{mapping, "node.async_threads", "vm_args.+A", [
+  {default, 64},
+  {datatype, integer},
+  {validators, ["range:0-1024"]}
+]}.
+
+%% @doc Erlang Process Limit
+{mapping, "node.process_limit", "vm_args.+P", [
+  {datatype, integer},
+  {default, 256000},
+  hidden
+]}.
+
+%% Note: OTP R15 and earlier uses -env ERL_MAX_PORTS, R16+ uses +Q
+%% @doc The number of concurrent ports/sockets
+%% Valid range is 1024-134217727
+{mapping, "node.max_ports",
+  cuttlefish:otp("R16", "vm_args.+Q", "vm_args.-env ERL_MAX_PORTS"), [
+  {default, 262144},
+  {datatype, integer},
+  {validators, ["range4ports"]}
+]}.
+
+{validator, "range4ports", "must be 1024 to 134217727",
+ fun(X) -> X >= 1024 andalso X =< 134217727 end}.
+
+%% @doc http://www.erlang.org/doc/man/erl.html#%2bzdbbl
+{mapping, "node.dist_buffer_size", "vm_args.+zdbbl", [
+  {datatype, bytesize},
+  {commented, "32MB"},
+  hidden,
+  {validators, ["zdbbl_range"]}
+]}.
+
+{translation, "vm_args.+zdbbl",
+ fun(Conf) ->
+  ZDBBL = cuttlefish:conf_get("node.dist_buffer_size", Conf, undefined),
+  case ZDBBL of
+    undefined -> undefined;
+    X when is_integer(X) -> cuttlefish_util:ceiling(X / 1024); %% Bytes to Kilobytes;
+    _ -> undefined
+  end
+ end
+}.
+
+{validator, "zdbbl_range", "must be between 1KB and 2097151KB",
+ fun(ZDBBL) ->
+  %% 2097151KB = 2147482624
+  ZDBBL >= 1024 andalso ZDBBL =< 2147482624
+ end
+}.
+
+%% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
+{mapping, "node.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
+  {default, 1000},
+  {datatype, integer},
+  hidden,
+  {validators, ["positive_integer"]}
+]}.
+
+{validator, "positive_integer", "must be a positive integer",
+  fun(X) -> X >= 0 end}.
+
+%% Note: OTP R15 and earlier uses -env ERL_MAX_ETS_TABLES,
+%% R16+ uses +e
+%% @doc The ETS table limit
+{mapping, "node.max_ets_tables",
+  cuttlefish:otp("R16", "vm_args.+e", "vm_args.-env ERL_MAX_ETS_TABLES"), [
+  {default, 256000},
+  {datatype, integer},
+  hidden
+]}.
+
+%% @doc Set the location of crash dumps
+{mapping, "node.crash_dump", "vm_args.-env ERL_CRASH_DUMP", [
+  {default, "{{crash_dump}}"},
+  {datatype, file},
+  hidden
+]}.
+
+%% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
+{mapping, "node.dist_net_ticktime", "vm_args.-kernel net_ticktime", [
+  {commented, 60},
+  {datatype, integer},
+  hidden
+]}.
+
+%% @doc http://www.erlang.org/doc/man/kernel_app.html
+{mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
+  {commented, 6369},
+  {datatype, integer},
+  hidden
+]}.
+
+%% @see node.dist_listen_min
+{mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
+  {commented, 6369},
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "node.sbt", "vm_args.+sbt", [
+  {default, u},
+  {datatype, {enum, [u, ns, ts, ps, s, nnts, nnps, tnnps, db]}}
+]}.
+
+%%--------------------------------------------------------------------
+%% $p
+%%--------------------------------------------------------------------
+
+endef
+
 define bs_vm_args
 -name $p@127.0.0.1
 -setcookie $p
@@ -5795,9 +6012,10 @@ ifneq ($(wildcard rel/),)
 endif
 	$(eval p := $(PROJECT))
 	$(call render_template,bs_relx_config,relx.config)
-	$(verbose) mkdir rel/
-	$(call render_template,bs_sys_config,rel/sys.config)
-	$(call render_template,bs_vm_args,rel/vm.args)
+	$(verbose) mkdir etc/
+	$(call render_template,bs_sys_conf,etc/$(PROJECT).config)
+	$(verbose) mkdir priv/
+	$(call render_template,bs_sys_schema,priv/$(PROJECT).schema)
 
 new-app:
 ifndef in
