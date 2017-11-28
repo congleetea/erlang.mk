@@ -18,7 +18,7 @@ ERLANG_MK_FILENAME := $(realpath $(lastword $(MAKEFILE_LIST)))
 export ERLANG_MK_FILENAME
 
 ERLANG_MK_VERSION = 2017.08.28-19-g8e3d863
-ERLANG_MK_WITHOUT = 
+ERLANG_MK_WITHOUT =
 
 # Make 3.81 and 3.82 are deprecated.
 
@@ -5485,11 +5485,29 @@ stop(_State) ->
 	ok.
 endef
 
+define bs_vars_config
+%% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
+%% ex: ft=erlang ts=4 sw=4 et
+{project_name, "$p"}.
+
+endef
+
 define bs_relx_config
-{release, {$p, "1"}, [$p, sasl, runtime_tools]}.
+{release, {$p, "1"}, 
+	[$p,
+     sasl,
+     runtime_tools]}.
 {extended_start_script, true}.
-{sys_config, "rel/sys.config"}.
-{vm_args, "rel/vm.args"}.
+{sys_config, false}.
+{vm_args, false}.
+
+{overlay_vars, "vars.config"}.
+{overlay, [
+	{mkdir, "etc"},
+	{copy, "etc/$p.conf", "etc/"},
+	{copy, "bin/cuttlefish", "bin/cuttlefish"},
+	{template, "bin/$p", "bin/$p"}
+]}.
 endef
 
 define bs_sys_config
@@ -5510,7 +5528,7 @@ define bs_sys_conf
 ## Node Name
 node.name = $p@127.0.0.1
 
-## Cookie for distributed node 
+## Cookie for distributed node
 node.cookie = $p
 
 ## vm.args: -heart
@@ -5998,6 +6016,10 @@ endif
 	$(eval p := $(PROJECT))
 	$(call render_template,bs_Makefile,Makefile)
 	$(verbose) echo "include erlang.mk" >> Makefile
+	$(verbose) echo "all:: app version" >> Makefile
+	$(verbose) echo "version:" >> Makefile
+	$(verbose) echo "	@touch _rel/$p/VERSION" >> Makefile
+	$(verbose) echo '	@echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION' >> Makefile
 	$(verbose) mkdir src/
 ifdef LEGACY
 	$(call render_template,bs_appsrc_lib,src/$(PROJECT).app.src)
@@ -6011,9 +6033,10 @@ ifneq ($(wildcard rel/),)
 	$(error Error: rel/ directory already exists)
 endif
 	$(eval p := $(PROJECT))
+	$(call render_template,bs_vars_config,vars.config)
 	$(call render_template,bs_relx_config,relx.config)
 	$(verbose) mkdir etc/
-	$(call render_template,bs_sys_conf,etc/$(PROJECT).config)
+	$(call render_template,bs_sys_conf,etc/$(PROJECT).conf)
 	$(verbose) mkdir priv/
 	$(call render_template,bs_sys_schema,priv/$(PROJECT).schema)
 
@@ -6826,10 +6849,10 @@ $(RELX):
 	$(verbose) chmod +x $(RELX)
 
 relx-rel: $(RELX) rel-deps app
-	$(verbose) $(RELX) -c $(RELX_CONFIG) $(RELX_OPTS) release $(if $(filter 1,$(RELX_TAR)),tar)
+	$(verbose) $(RELX) -c $(RELX_CONFIG) $(RELX_OPTS) release
 
 relx-relup: $(RELX) rel-deps app
-	$(verbose) $(RELX) -c $(RELX_CONFIG) $(RELX_OPTS) release relup $(if $(filter 1,$(RELX_TAR)),tar)
+	$(verbose) $(RELX) -c $(RELX_CONFIG) $(RELX_OPTS) release relup
 
 distclean-relx-rel:
 	$(gen_verbose) rm -rf $(RELX_OUTPUT_DIR)
