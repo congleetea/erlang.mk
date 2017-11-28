@@ -31,13 +31,18 @@ esac
 SCRIPT_DIR="$(cd `dirname "$SCRIPT"` && pwd -P)"
 RELEASE_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 # Make the value available to variable substitution calls below
-export REL_NAME="myapp_release"
-REL_VSN="1"
-ERTS_VSN="8.3"
+export REL_NAME="{{ project_name }}"
+REL_VSN="{{ rel_vsn }}"
+ERTS_VSN="{{ erts_vsn }}"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 REL_DIR="$RELEASE_ROOT_DIR/releases/$REL_VSN"
-ERL_OPTS=""
+ERL_OPTS="{{ erl_opts }}"
+ERTS_PATH=$RELEASE_ROOT_DIR/erts-$ERTS_VSN/bin
 RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/log}"
+RUNNER_ETC_DIR="${RUNNER_ETC_DIR:-$RELEASE_ROOT_DIR/etc}"
+RUNNER_DATA_DIR="${RUNNER_DATA_DIR:-$RELEASE_ROOT_DIR/data}"
+MNESIA_DATA_DIR="$RUNNER_DATA_DIR/mnesia/$NAME"
+CONFIG_FILE="$RUNNER_ETC_DIR/$REL_NAME.conf"
 
 # start/stop/install/upgrade pre/post hooks
 PRE_START_HOOKS=""
@@ -167,6 +172,7 @@ relx_gen_id() {
 
 # Control a node
 relx_nodetool() {
+    echo "COOKIE: $COOKIE"
     command="$1"; shift
 
     "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
@@ -185,6 +191,36 @@ relx_escript() {
 relx_start_command() {
     printf "exec \"%s\" \"%s\"" "$RELEASE_ROOT_DIR/bin/$REL_NAME" \
            "$START_OPTION"
+}
+
+# Echo to stderr on errors
+echoerr() { echo "$@" 1>&2; }
+
+# Function to generate app.config and vm.args
+# Cuttlefish to generate app.config and vm.args
+CUTTLEFISH="on"
+if [ -z "$CUTTLEFISH" ]; then
+    CUTTLEFISH_COMMAND_PREFIX=""
+else
+    CUTTLEFISH_COMMAND_PREFIX="$ERTS_PATH/escript $RELEASE_ROOT_DIR/bin/cuttlefish -s $REL_DIR/schema -d $RUNNER_DATA_DIR/configs"
+fi
+
+generate_config() {
+    if [ -z "$CUTTLEFISH" ]; then
+        # Note: we have added a parameter '-vm_args' to this. It
+        # appears redundant but it is not! the erlang vm allows us to
+        # access all arguments to the erl command EXCEPT '-args_file',
+        # so in order to get access to this file location from within
+        # the vm, we need to pass it in twice.
+        CONFIG_ARGS=" -config $RUNNER_ETC_DIR/app.config -args_file $RUNNER_ETC_DIR/vm.args -vm_args $RUNNER_ETC_DIR/vm.args "
+    else
+        CONFIG_ARGS=`$CUTTLEFISH_COMMAND_PREFIX -c $CONFIG_FILE generate`
+        if [ "$?" -ne 0 ]; then
+            echoerr "Error generating config with cuttlefish"
+            echoerr "  run \`$RUNNER_SCRIPT config generate -l debug\` for more information."
+            exit 1
+        fi
+    fi
 }
 
 relx_get_code_paths() {
@@ -237,37 +273,6 @@ add_path() {
     echo $IN_FILE_PATH
 }
 
-check_replace_os_vars() {
-    IN_FILE_PATH=$(add_path $1 $2)
-    OUT_FILE_PATH="$IN_FILE_PATH"
-    ORIG_FILE_PATH="$IN_FILE_PATH.orig"
-    if [ $RELX_REPLACE_OS_VARS ]; then
-        # Create a new file in the same location as original
-        OUT_FILE_PATH=$(make_out_file_path $IN_FILE_PATH)
-        # If vm.args.orig or sys.config.orig is present then use that
-        if [ -f "$ORIG_FILE_PATH" ]; then
-           IN_FILE_PATH="$ORIG_FILE_PATH"
-        fi
-
-        # apply the environment variable substitution to $IN_FILE_PATH
-        # the result is saved to $OUT_FILE_PATH
-        # if they are both the same, then ensure that we don't clobber
-        # the file by saving a backup with the .orig extension
-        if [ "$IN_FILE_PATH" = "$OUT_FILE_PATH" ]; then
-            cp "$IN_FILE_PATH" "$ORIG_FILE_PATH"
-            replace_os_vars "$ORIG_FILE_PATH" "$OUT_FILE_PATH"
-        else
-            replace_os_vars "$IN_FILE_PATH" "$OUT_FILE_PATH"
-        fi
-    else
-        # If vm.arg.orig or sys.config.orig is present then use that
-        if [ -f "$ORIG_FILE_PATH" ]; then
-           cp "$ORIG_FILE_PATH" "$OUT_FILE_PATH"
-        fi
-    fi
-    echo $OUT_FILE_PATH
-}
-
 relx_run_hooks() {
     HOOKS=$1
     for hook in $HOOKS
@@ -293,11 +298,26 @@ export PROGNAME="erl"
 export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 ERTS_LIB_DIR="$(dirname "$ERTS_DIR")/lib"
 
-VMARGS_PATH=$(add_path vm.args $VMARGS_PATH)
+# Use $CWD/etc/sys.config if exists
+if [ -z "$RELX_CONFIG_PATH" ]; then
+    if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
+        RELX_CONFIG_PATH="-config $RUNNER_ETC_DIR/sys.config"
+    else
+        RELX_CONFIG_PATH=""
+    fi
+fi
+
 # Extract the target node name from node.args
-NAME_ARG=$(egrep '^-s?name' "$VMARGS_PATH" || true)
-# Perform replacement of variables in ${NAME_ARG}
-NAME_ARG=$(eval echo "${NAME_ARG}")
+if [ -z "$NAME_ARG" ]; then
+    NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' $RUNNER_ETC_DIR/$REL_NAME.conf 2> /dev/null | tail -1 | cut -d = -f 2`
+    if [ -z "$NODENAME" ]; then
+        echoerr "vm.args needs to have a -name parameter."
+        echoerr "  -sname is not supported."
+        exit 1
+    else
+        NAME_ARG="-name ${NODENAME# *}"
+    fi
+fi
 
 if [ -z "$NAME_ARG" ]; then
     echo "vm.args needs to have either -name or -sname parameter."
@@ -319,27 +339,21 @@ esac
 # Export the variable so that it's available in the 'eval' calls
 export NAME
 
-VMARGS_PATH=$(check_replace_os_vars vm.args $VMARGS_PATH)
-RELX_CONFIG_PATH=$(check_replace_os_vars sys.config $RELX_CONFIG_PATH)
-
 # Make sure log directory exists
 mkdir -p "$RUNNER_LOG_DIR"
 
 PIPE_DIR="${PIPE_DIR:-/tmp/erl_pipes/$NAME/}"
 
 # Extract the target cookie
-COOKIE_ARG="$(grep '^-setcookie' "$VMARGS_PATH" || true)"
-DEFAULT_COOKIE_FILE="$HOME/.erlang.cookie"
+# Extract the target cookie
 if [ -z "$COOKIE_ARG" ]; then
-    if [ -f "$DEFAULT_COOKIE_FILE" ]; then
-        COOKIE="$(cat $DEFAULT_COOKIE_FILE)"
-    else
-        echo "vm.args needs to have a -setcookie, or $DEFAULT_COOKIE_FILE (its permission must be 400) is required."
+    COOKIE=`egrep '^[ \t]*node.cookie[ \t]*=[ \t]*' $RUNNER_ETC_DIR/$REL_NAME.conf 2> /dev/null | tail -1 | cut -d = -f 2`
+    if [ -z "$COOKIE" ]; then
+        echoerr "vm.args needs to have a -setcookie parameter."
         exit 1
+    else
+        COOKIE_ARG="-setcookie $COOKIE"
     fi
-else
-    # Extract cookie name from COOKIE_ARG
-    COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 fi
 
 cd "$ROOTDIR"
@@ -349,11 +363,12 @@ case "$1" in
     start|start_boot)
 
         # Make sure there is not already a node running
-        #RES=`$NODETOOL ping`
-        #if [ "$RES" = "pong" ]; then
-        #    echo "Node is already running!"
-        #    exit 1
-        #fi
+        echo "-----------"
+        if relx_nodetool "ping" >/dev/null 2>&1; then
+            echo "Node is already running!"
+            exit 1
+        fi
+
         # Save this for later.
         CMD=$1
         case "$1" in
@@ -527,6 +542,10 @@ case "$1" in
                 shift
                 ;;
         esac
+
+        #generate app.config and vm.args
+        generate_config
+
         # Setup beam-required vars
         EMU="beam"
         PROGNAME="${0#*/}"
@@ -539,11 +558,13 @@ case "$1" in
 
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
+        echo "BOOTFILE: $BOOTFILE"
+        echo "RELX_CONFIG_PATH: $RELX_CONFIG_PATH"
         set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
             -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
-            -config "$RELX_CONFIG_PATH" \
-            -args_file "$VMARGS_PATH" \
+            -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
+            $RELX_CONFIG_PATH $CONFIG_ARGS \
             -pa ${__code_paths}
 
         # Dump environment info for logging purposes
