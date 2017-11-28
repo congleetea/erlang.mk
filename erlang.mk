@@ -5450,6 +5450,12 @@ PROJECT = $p
 PROJECT_DESCRIPTION = New project
 PROJECT_VERSION = 0.1.0
 
+DEPS = lager lager_syslog
+
+dep_lager        = git https://github.com/basho/lager master
+dep_lager_syslog = git https://github.com/basho/lager_syslog
+
+
 # Whitespace to be used when creating files from templates.
 SP = $(SP)
 
@@ -5459,6 +5465,11 @@ define bs_Makefile
 PROJECT = $p
 PROJECT_DESCRIPTION = New project
 PROJECT_VERSION = 0.1.0
+
+DEPS = lager lager_syslog
+
+dep_lager        = git https://github.com/basho/lager master
+dep_lager_syslog = git https://github.com/basho/lager_syslog
 
 endef
 endif
@@ -5489,14 +5500,16 @@ define bs_vars_config
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
 {project_name, "$p"}.
-
 endef
 
 define bs_relx_config
-{release, {$p, "1"}, 
+{release, {$p, "1"},
 	[$p,
-     sasl,
-     runtime_tools]}.
+	 sasl,
+	 runtime_tools,
+	 lager,
+	 syslog
+]}.
 {extended_start_script, true}.
 {sys_config, false}.
 {vm_args, false}.
@@ -5504,8 +5517,12 @@ define bs_relx_config
 {overlay_vars, "vars.config"}.
 {overlay, [
 	{mkdir, "etc"},
+	{mkdir, "data"},
+	{mkdir, "log"},
 	{copy, "etc/$p.conf", "etc/"},
 	{copy, "bin/cuttlefish", "bin/cuttlefish"},
+	{copy, "priv/$p.schema", "releases/\{\{ rel_vsn \}\}/schema/$p.schema"},
+	{template, "bin/nodetool", "bin/nodetool"},
 	{template, "bin/$p", "bin/$p"}
 ]}.
 endef
@@ -5567,6 +5584,33 @@ node.dist_net_ticktime = 60
 # node.dist_listen_min = 6369
 # node.dist_listen_max = 6369
 
+##--------------------------------------------------------------------
+## LOG Args
+##--------------------------------------------------------------------
+log.colored = on
+
+## Set the log dir
+log.dir = log
+
+## Console log. Enum: off, file, console, both
+log.console = console
+
+## Syslog. Enum: on, off
+log.syslog = on
+
+##  syslog level. Enum: debug, info, notice, warning, error, critical, alert, emergency
+log.syslog.level = error
+
+## Console log level. Enum: debug, info, notice, warning, error, critical, alert, emergency
+log.console.level = error
+
+## Console log file
+## log.console.file = log/console.log
+
+##--------------------------------------------------------------------
+## Sasl Args
+##--------------------------------------------------------------------
+sasl.sasl_error_logger = on
 
 ##--------------------------------------------------------------------
 ## Application Args
@@ -5695,7 +5739,7 @@ end}.
 
 %% @doc Set the location of crash dumps
 {mapping, "node.crash_dump", "vm_args.-env ERL_CRASH_DUMP", [
-  {default, "{{crash_dump}}"},
+  {default, "log/crash.dump"},
   {datatype, file},
   hidden
 ]}.
@@ -5725,6 +5769,149 @@ end}.
   {default, u},
   {datatype, {enum, [u, ns, ts, ps, s, nnts, nnps, tnnps, db]}}
 ]}.
+
+%%--------------------------------------------------------------------
+%% LOG
+%%--------------------------------------------------------------------
+{mapping, "log.colored", "lager.colored", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "log.dir", "lager.log_dir", [
+  {default, "log"},
+  {datatype, string}
+]}.
+
+{mapping, "log.console", "lager.handlers", [
+  {default, file},
+  {datatype, {enum, [off, file, console, both]}}
+]}.
+
+{mapping, "log.console.level", "lager.handlers", [
+  {default, info},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, none]}}
+]}.
+
+{mapping, "log.console.file", "lager.handlers", [
+  {default, "log/console.log"},
+  {datatype, file}
+]}.
+
+{mapping, "log.error.file", "lager.handlers", [
+  {default, "log/error.log"},
+  {datatype, file}
+]}.
+
+{mapping, "log.syslog", "lager.handlers", [
+  {default,  off},
+  {datatype, flag}
+]}.
+
+{mapping, "log.syslog.identity", "lager.handlers", [
+  {default, "$p"},
+  {datatype, string}
+]}.
+
+{mapping, "log.syslog.facility", "lager.handlers", [
+  {default, local0},
+  {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
+]}.
+
+{mapping, "log.syslog.level", "lager.handlers", [
+  {default, error},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
+]}.
+
+{mapping, "log.error.redirect", "lager.error_logger_redirect", [
+  {default, on},
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "log.error.messages_per_second", "lager.error_logger_hwm", [
+  {default, 1000},
+  {datatype, integer},
+  hidden
+]}.
+
+{translation,
+ "lager.handlers",
+ fun(Conf) ->
+    ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf) of
+      undefined -> [];
+      ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
+                                              {level, error},
+                                              {size, 10485760},
+                                              {date, "$$D0"},
+                                              {count, 5}]}]
+    end,
+
+    ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
+    ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
+
+    ConsoleHandler = {lager_console_backend, ConsoleLogLevel},
+    ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
+                                               {level, ConsoleLogLevel},
+                                               {size, 10485760},
+                                               {date, "$$D0"},
+                                               {count, 5}]},
+
+    ConsoleHandlers = case cuttlefish:conf_get("log.console", Conf) of
+      off -> [];
+      file -> [ConsoleFileHandler];
+      console -> [ConsoleHandler];
+      both -> [ConsoleHandler, ConsoleFileHandler];
+      _ -> []
+    end,
+
+    SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
+      false -> [];
+      true  -> [{lager_syslog_backend,
+                  [cuttlefish:conf_get("log.syslog.identity", Conf),
+                   cuttlefish:conf_get("log.syslog.facility", Conf),
+                   cuttlefish:conf_get("log.syslog.level", Conf)]}]
+    end,
+    ConsoleHandlers ++ ErrorHandler ++ SyslogHandler
+  end
+}.
+
+{mapping, "log.crash", "lager.crash_log", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "log.crash.file", "lager.crash_log", [
+  {default, "log/crash.log"},
+  {datatype, file}
+]}.
+
+{translation,
+ "lager.crash_log",
+ fun(Conf) ->
+     case cuttlefish:conf_get("log.crash", Conf) of
+         false -> undefined;
+         _ ->
+             cuttlefish:conf_get("log.crash.file", Conf, "./log/crash.log")
+     end
+ end}.
+
+%%--------------------------------------------------------------------
+%% SASL
+%%--------------------------------------------------------------------
+{mapping, "sasl.sasl_error_logger", "sasl.sasl_error_logger", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{translation,
+ "sasl.sasl_error_logger",
+ fun(Conf) ->
+     case cuttlefish:conf_get("sasl.sasl_error_logger", Conf) of
+         false -> false;
+         true -> {file, "log/sasl.log"}
+     end
+ end}.
 
 %%--------------------------------------------------------------------
 %% $p
