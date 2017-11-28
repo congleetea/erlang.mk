@@ -129,7 +129,6 @@ relx_start_command() {
 
 # Function to generate app.config and vm.args
 generate_config() {
-    echo "$CUTTLEFISH"
     if [ -z "$CUTTLEFISH" ]; then
         # Note: we have added a parameter '-vm_args' to this. It
         # appears redundant but it is not! the erlang vm allows us to
@@ -171,9 +170,7 @@ fi
 
 # Extract the target node name from node.args
 if [ -z "$NAME_ARG" ]; then
-    echo "$RUNNER_ETC_DIR/$REL_NAME.conf"
     NODENAME=`egrep '^[ \t]*node.name[ \t]*=[ \t]*' $RUNNER_ETC_DIR/$REL_NAME.conf 2> /dev/null | tail -1 | cut -d = -f 2`
-    echo "nodename: $NODENAME"
     if [ -z "$NODENAME" ]; then
         echoerr "vm.args needs to have a -name parameter."
         echoerr "  -sname is not supported."
@@ -432,7 +429,6 @@ case "$1" in
         echo "Root: $ROOTDIR"
 
         # Log the startup
-        echo "$RUNNER_ROOT_DIR"
         logger -t "$REL_NAME[$$]" "Starting up"
 
         # Start the VM
