@@ -5454,7 +5454,7 @@ DEPS = lager lager_syslog
 
 dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
-
+ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 # Whitespace to be used when creating files from templates.
 SP = $(SP)
@@ -5470,6 +5470,8 @@ DEPS = lager lager_syslog
 
 dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
+
+ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 endef
 endif
