@@ -5503,6 +5503,7 @@ define bs_vars_config
 endef
 
 define bs_relx_config
+%%-*- mode: erlang -*-
 {release, {$p, "1"},
 	[$p,
 	 sasl,
