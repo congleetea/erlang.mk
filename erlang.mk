@@ -5511,6 +5511,8 @@ define bs_relx_config
 	 lager,
 	 syslog
 ]}.
+
+{generate_start_script, false}.
 {extended_start_script, true}.
 {sys_config, false}.
 {vm_args, false}.
