@@ -5456,6 +5456,14 @@ dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
+include erlang.mk
+
+all:: app version
+
+version:
+	@touch _rel/$p/VERSION"
+    @echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION
+
 # Whitespace to be used when creating files from templates.
 SP = $(SP)
 
@@ -5472,6 +5480,14 @@ dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
+
+include erlang.mk
+
+all:: app version
+
+version:
+	@touch _rel/$p/VERSION
+	@echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION
 
 endef
 endif
@@ -6207,11 +6223,6 @@ ifneq ($(wildcard src/),)
 endif
 	$(eval p := $(PROJECT))
 	$(call render_template,bs_Makefile,Makefile)
-	$(verbose) echo "include erlang.mk" >> Makefile
-	$(verbose) echo "all:: app version" >> Makefile
-	$(verbose) echo "version:" >> Makefile
-	$(verbose) echo "	@touch _rel/$p/VERSION" >> Makefile
-	$(verbose) echo '	@echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION' >> Makefile
 	$(verbose) mkdir src/
 ifdef LEGACY
 	$(call render_template,bs_appsrc_lib,src/$(PROJECT).app.src)
