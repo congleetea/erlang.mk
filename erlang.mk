@@ -5458,11 +5458,15 @@ ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 include erlang.mk
 
-all:: app version
+all:: rmcompile app version
 
 version:
 	@touch _rel/$p/VERSION"
     @echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION
+
+rmcompile:
+	@rm -rf ./deps/*/ebin
+	@rm ./deps/*/*.d
 
 # Whitespace to be used when creating files from templates.
 SP = $(SP)
@@ -5483,11 +5487,15 @@ ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 include erlang.mk
 
-all:: app version
+all:: rmcompile app version
 
 version:
 	@touch _rel/$p/VERSION
 	@echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION
+
+rmcompile:
+        @rm -rf ./deps/*/ebin
+        @rm ./deps/*/*.d
 
 endef
 endif
