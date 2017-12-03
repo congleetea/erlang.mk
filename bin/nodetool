@@ -49,7 +49,6 @@ main(Args) ->
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
-            rpc:call(TargetNode, emqttd_plugins, unload, [], 60000),
             io:format("~p\n", [rpc:call(TargetNode, init, stop, [], 60000)]);
         ["restart"] ->
             io:format("~p\n", [rpc:call(TargetNode, init, restart, [], 60000)]);
@@ -226,7 +225,7 @@ consult(Cont, Str, Acc) ->
     end.
 
 %%
-%% Validation functions for checking the emqttd.config
+%% Validation functions for checking the {{project_name}}.config
 %%
 validate([Terms]) ->
     Results = [ValidateFun(Terms) || ValidateFun <- get_validation_funs()],
@@ -243,7 +242,7 @@ get_validation_funs() ->
     [ ].
 
 print_issue({warning, Warning}) ->
-    io:format(standard_error, "Warning in emqttd.config: ~s~n", [Warning]);
+    io:format(standard_error, "Warning in {{project_name}}.config: ~s~n", [Warning]);
 print_issue({error, Error}) ->
-    io:format(standard_error, "Error in emqttd.config: ~s~n", [Error]).
+    io:format(standard_error, "Error in {{project_name}}.config: ~s~n", [Error]).
 
