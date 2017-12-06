@@ -5494,8 +5494,8 @@ version:
 	@echo `git log --date=iso --pretty=format:"%cd @%H @" -1 && git describe --tag` > _rel/$p/VERSION
 
 rmcompile:
-        @rm -rf ./deps/*/ebin
-        @rm ./deps/*/*.d
+	@rm -rf ./deps/*/ebin
+	@rm ./deps/*/*.d
 
 endef
 endif
