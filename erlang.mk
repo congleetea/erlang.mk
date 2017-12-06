@@ -6217,7 +6217,6 @@ endif
 	$(eval p := $(PROJECT))
 	$(eval n := $(PROJECT)_sup)
 	$(call render_template,bs_Makefile,Makefile)
-	$(verbose) echo "include erlang.mk" >> Makefile
 	$(verbose) mkdir src/
 ifdef LEGACY
 	$(call render_template,bs_appsrc,src/$(PROJECT).app.src)
