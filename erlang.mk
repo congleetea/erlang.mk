@@ -5466,7 +5466,7 @@ version:
 
 rmcompile:
 	@rm -rf ./deps/*/ebin
-	@rm ./deps/*/*.d
+	@rm -rf ./deps/*/*.d
 
 # Whitespace to be used when creating files from templates.
 SP = $(SP)
@@ -5495,7 +5495,7 @@ version:
 
 rmcompile:
 	@rm -rf ./deps/*/ebin
-	@rm ./deps/*/*.d
+	@rm -rf ./deps/*/*.d
 
 endef
 endif
